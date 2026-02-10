@@ -413,27 +413,23 @@ def _(mo):
         label="Optimism beta",
     )
     run_button = mo.ui.run_button(label="Run simulation")
+    mo.vstack([episodes_slider, epsilon_slider, beta_slider, run_button])
     return beta_slider, episodes_slider, epsilon_slider, run_button
 
 
 @app.cell
-def _(beta_slider, episodes_slider, epsilon_slider, mo, run_button):
-    mo.vstack(
-        [
-            episodes_slider,
-            epsilon_slider,
-            beta_slider,
-            run_button,
-        ]
-    )
-    return
-
-
-@app.cell
-def _(beta_slider, episodes_slider, epsilon_slider, go, make_subplots, mo, np, run_button):
-    mo.stop(
-        not run_button.value, mo.md("*Click **Run simulation** above to see results.*")
-    )
+def _(
+    beta_slider,
+    episodes_slider,
+    epsilon_slider,
+    go,
+    make_subplots,
+    mo,
+    np,
+    run_button,
+):
+    if not run_button.value:
+        mo.stop(True, mo.md("*Click **Run simulation** to generate results.*"))
 
     _grid = 6
     _n_states = _grid * _grid
@@ -522,7 +518,6 @@ def _(beta_slider, episodes_slider, epsilon_slider, go, make_subplots, mo, np, r
 
     _reg_naive, _vis_naive = _run_naive()
     _reg_opt, _vis_opt = _run_optimistic()
-
     _episodes = np.arange(1, _n_episodes + 1)
     _vis_naive_grid = _vis_naive.reshape(_grid, _grid)
     _vis_opt_grid = _vis_opt.reshape(_grid, _grid)
@@ -538,7 +533,6 @@ def _(beta_slider, episodes_slider, epsilon_slider, go, make_subplots, mo, np, r
         ),
         column_widths=[0.5, 0.25, 0.25],
     )
-
     _fig.add_trace(
         go.Scatter(
             x=_episodes,
@@ -581,7 +575,6 @@ def _(beta_slider, episodes_slider, epsilon_slider, go, make_subplots, mo, np, r
         row=1,
         col=3,
     )
-
     _fig.update_xaxes(title_text="Episode", row=1, col=1)
     _fig.update_yaxes(title_text="Cumulative regret", row=1, col=1)
     _fig.update_xaxes(title_text="x", row=1, col=2)
@@ -595,19 +588,22 @@ def _(beta_slider, episodes_slider, epsilon_slider, go, make_subplots, mo, np, r
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "x": 0.0},
     )
 
-    mo.vstack(
+    _output = mo.vstack(
         [
-            mo.md(rf"""
+            mo.md(
+                rf"""
     **Results after {_n_episodes} episodes**
 
     - Naive ($\varepsilon$-greedy) cumulative regret: **{float(_reg_naive[-1]):.1f}**
     - Optimistic (UCB-style) cumulative regret: **{float(_reg_opt[-1]):.1f}**
 
     Lower is better. The optimistic agent usually reaches and revisits goal-directed regions faster.
-        """),
+                """
+            ),
             _fig,
         ]
     )
+    _output
     return
 
 
