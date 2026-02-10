@@ -6,6 +6,7 @@
 #     "pandas",
 #     "altair==6.0.0",
 #     "plotly",
+#     "ruff==0.15.0",
 # ]
 # ///
 
@@ -24,7 +25,7 @@ def _():
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
 
-    return alt, go, make_subplots, mo, np, pd
+    return alt, mo, np, pd
 
 
 @app.cell
@@ -322,7 +323,11 @@ def _(alt, mo, np, pd):
             color=alt.Color(
                 "Regime:N",
                 scale=alt.Scale(
-                    domain=["Finite spectrum", "Exponential decay", "Polynomial decay"],
+                    domain=[
+                        "Finite spectrum",
+                        "Exponential decay",
+                        "Polynomial decay",
+                    ],
                     range=["#355070", "#6d597a", "#b56576"],
                 ),
             ),
@@ -365,245 +370,6 @@ def _(mo):
     - The total "optimism budget" across all episodes is bounded.
     - This is what gives us the $\sqrt{T}$ rate.
     """)
-    return
-
-
-@app.cell
-def _(mo):
-    mo.md(r"""
-    ## Optional Appendix Demo (Not a Paper Experiment)
-
-    This short demo is only to build intuition for the optimism bonus used in the paper.
-
-    **Environment**: 2D gridworld, sparse reward at a goal cell.
-
-    | Agent | Exploration strategy |
-    |-------|----------|
-    | **Naive** ($\varepsilon$-greedy) | Random exploration with probability $\varepsilon$ |
-    | **Optimistic** (UCB-style) | Chooses by $Q(s,a) + \beta / \sqrt{N(s,a)+1}$ |
-
-    The paper's contribution is theoretical guarantees for nonlinear function classes (kernels + neural nets), not this toy benchmark.
-
-    Adjust the sliders below and click **Run simulation** to compare.
-    """)
-    return
-
-
-@app.cell
-def _(mo):
-    episodes_slider = mo.ui.slider(
-        start=50,
-        stop=400,
-        step=10,
-        value=220,
-        label="Episodes",
-    )
-    epsilon_slider = mo.ui.slider(
-        start=0.01,
-        stop=0.40,
-        step=0.01,
-        value=0.10,
-        label="Naive epsilon",
-    )
-    beta_slider = mo.ui.slider(
-        start=0.2,
-        stop=4.0,
-        step=0.1,
-        value=1.6,
-        label="Optimism beta",
-    )
-    run_button = mo.ui.run_button(label="Run simulation")
-    mo.vstack([episodes_slider, epsilon_slider, beta_slider, run_button])
-    return beta_slider, episodes_slider, epsilon_slider, run_button
-
-
-@app.cell
-def _(
-    beta_slider,
-    episodes_slider,
-    epsilon_slider,
-    go,
-    make_subplots,
-    mo,
-    np,
-    run_button,
-):
-    if not run_button.value:
-        mo.stop(True, mo.md("*Click **Run simulation** to generate results.*"))
-
-    _grid = 6
-    _n_states = _grid * _grid
-    _n_actions = 4
-    _horizon = 4 * _grid
-    _n_episodes = int(episodes_slider.value)
-    _epsilon = float(epsilon_slider.value)
-    _beta = float(beta_slider.value)
-    _alpha = 0.35
-    _gamma = 1.0
-    _seed = 11
-    _start = 0
-    _goal = _n_states - 1
-
-    def _to_xy(state):
-        return state % _grid, state // _grid
-
-    def _to_state(x, y):
-        return y * _grid + x
-
-    def _transition(state, action):
-        x, y = _to_xy(state)
-        if action == 0:  # up
-            y = max(0, y - 1)
-        elif action == 1:  # down
-            y = min(_grid - 1, y + 1)
-        elif action == 2:  # left
-            x = max(0, x - 1)
-        else:  # right
-            x = min(_grid - 1, x + 1)
-        nxt = _to_state(x, y)
-        rew = 1.0 if nxt == _goal else 0.0
-        dn = nxt == _goal
-        return nxt, rew, dn
-
-    def _run_naive():
-        rng = np.random.default_rng(_seed)
-        qv = np.zeros((_n_states, _n_actions))
-        regrets = np.zeros(_n_episodes)
-        sv = np.zeros(_n_states)
-        for ep in range(_n_episodes):
-            s = _start
-            ep_r = 0.0
-            for _ in range(_horizon):
-                sv[s] += 1
-                if rng.random() < _epsilon:
-                    a = int(rng.integers(_n_actions))
-                else:
-                    best = np.flatnonzero(qv[s] == qv[s].max())
-                    a = int(rng.choice(best))
-                ns, r, d = _transition(s, a)
-                qv[s, a] += _alpha * (r + _gamma * np.max(qv[ns]) - qv[s, a])
-                ep_r += r
-                s = ns
-                if d:
-                    sv[s] += 1
-                    break
-            regrets[ep] = 1.0 - ep_r
-        return np.cumsum(regrets), sv
-
-    def _run_optimistic():
-        rng = np.random.default_rng(_seed + 1)
-        qv = np.zeros((_n_states, _n_actions))
-        vc = np.zeros((_n_states, _n_actions))
-        regrets = np.zeros(_n_episodes)
-        sv = np.zeros(_n_states)
-        for ep in range(_n_episodes):
-            s = _start
-            ep_r = 0.0
-            for _ in range(_horizon):
-                sv[s] += 1
-                bonus = _beta / np.sqrt(vc[s] + 1.0)
-                scores = qv[s] + bonus
-                best = np.flatnonzero(scores == scores.max())
-                a = int(rng.choice(best))
-                vc[s, a] += 1
-                ns, r, d = _transition(s, a)
-                qv[s, a] += _alpha * (r + _gamma * np.max(qv[ns]) - qv[s, a])
-                ep_r += r
-                s = ns
-                if d:
-                    sv[s] += 1
-                    break
-            regrets[ep] = 1.0 - ep_r
-        return np.cumsum(regrets), sv
-
-    _reg_naive, _vis_naive = _run_naive()
-    _reg_opt, _vis_opt = _run_optimistic()
-    _episodes = np.arange(1, _n_episodes + 1)
-    _vis_naive_grid = _vis_naive.reshape(_grid, _grid)
-    _vis_opt_grid = _vis_opt.reshape(_grid, _grid)
-
-    _fig = make_subplots(
-        rows=1,
-        cols=3,
-        specs=[[{"type": "xy"}, {"type": "heatmap"}, {"type": "heatmap"}]],
-        subplot_titles=(
-            "Cumulative Regret",
-            "Naive State Visits",
-            "Optimistic State Visits",
-        ),
-        column_widths=[0.5, 0.25, 0.25],
-    )
-    _fig.add_trace(
-        go.Scatter(
-            x=_episodes,
-            y=_reg_naive,
-            mode="lines",
-            name=f"Naive eps-greedy (eps={_epsilon:.2f})",
-            line={"color": "#d1495b", "width": 3},
-        ),
-        row=1,
-        col=1,
-    )
-    _fig.add_trace(
-        go.Scatter(
-            x=_episodes,
-            y=_reg_opt,
-            mode="lines",
-            name=f"Optimistic UCB (beta={_beta:.1f})",
-            line={"color": "#2a9d8f", "width": 3},
-        ),
-        row=1,
-        col=1,
-    )
-    _fig.add_trace(
-        go.Heatmap(
-            z=_vis_naive_grid,
-            colorscale="YlOrRd",
-            showscale=False,
-            name="Naive visits",
-        ),
-        row=1,
-        col=2,
-    )
-    _fig.add_trace(
-        go.Heatmap(
-            z=_vis_opt_grid,
-            colorscale="YlGnBu",
-            showscale=False,
-            name="Optimistic visits",
-        ),
-        row=1,
-        col=3,
-    )
-    _fig.update_xaxes(title_text="Episode", row=1, col=1)
-    _fig.update_yaxes(title_text="Cumulative regret", row=1, col=1)
-    _fig.update_xaxes(title_text="x", row=1, col=2)
-    _fig.update_xaxes(title_text="x", row=1, col=3)
-    _fig.update_yaxes(title_text="y", autorange="reversed", row=1, col=2)
-    _fig.update_yaxes(title_text="y", autorange="reversed", row=1, col=3)
-    _fig.update_layout(
-        height=460,
-        width=1100,
-        margin={"l": 40, "r": 20, "t": 60, "b": 40},
-        legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "x": 0.0},
-    )
-
-    _output = mo.vstack(
-        [
-            mo.md(
-                rf"""
-    **Results after {_n_episodes} episodes**
-
-    - Naive ($\varepsilon$-greedy) cumulative regret: **{float(_reg_naive[-1]):.1f}**
-    - Optimistic (UCB-style) cumulative regret: **{float(_reg_opt[-1]):.1f}**
-
-    Lower is better. The optimistic agent usually reaches and revisits goal-directed regions faster.
-                """
-            ),
-            _fig,
-        ]
-    )
-    _output
     return
 
 
